@@ -93,14 +93,15 @@ class Peer(object):
         else:
             # - else, token is remote-ecdhe-pubk and extracted public will be used
             token = remote_ecdhe_pubkey
-            remote_pubkey = other.pubkey # FIXME: how to extract remote_publickey ???
+            # FIXME: extract remote_publickey from signature
+            remote_pubkey = other.pubkey
 
         # - derive signature-message = sha3(token || addr^addrRemote)
         signed_data = sha3(token + remote_address + address)
         # - verify auth addr == address(extracted public key), else disconnect
         # translation:
         #   verify that the signed address matches the address we extracted
-        #       and that the address belongs to the extracted (FIXME!) pub_key
+        #       and that the address belongs to the extracted pub_key
         if not pyelliptic.ECC(pubkey=remote_pubkey).verify(signature, signed_data):
             self.disconnect(other)
 
