@@ -7,24 +7,15 @@ import pyethereum.utils as utils
 import logging
 import pytest
 import tempfile
-from tests.utils import set_db
-logging.basicConfig(level=logging.DEBUG, format='%(message)s')
-logger = logging.getLogger()
-
+from tests.utils import new_chainmanager
+from pyethereum.slogging import get_logger, configure_logging
+logger = get_logger()
 # customize VM log output to your needs
 # hint: use 'py.test' with the '-s' option to dump logs to the console
-pblogger = processblock.pblogger
-pblogger.log_pre_state = True    # dump storage at account before execution
-pblogger.log_post_state = True   # dump storage at account after execution
-pblogger.log_block = False       # dump block after TX was applied
-pblogger.log_memory = True      # dump memory before each op
-pblogger.log_stack = True      # dump stack before each op
-pblogger.log_storage = True      # dump storage before each op
-pblogger.log_op = True           # log op, gas, stack before each op
-pblogger.log_json = False        # generate machine readable output
-pblogger.log_apply_op = True     # log anything per operation at all
+configure_logging(':trace')
 
-
+# xfail because data is old
+@pytest.mark.xfail
 def test_import_remote_chain():
     raw_blocks_fn = 'tests/raw_remote_blocks_hex.txt'
     test_db_path = tempfile.mktemp()
@@ -40,7 +31,7 @@ def dump_transactions(hex_rlp_encoded_data):
         tx = transactions.Transaction.create(tx_lst_serialized)
         #print tx.to_dict()
 
-#@pytest.mark.xfail
+@pytest.mark.xfail
 def test_dump_tx(data=blk_poc7_v40_61):
     return dump_transactions(data)
 
@@ -53,10 +44,11 @@ def do_cprofile(func):
     def profiled_func(*args, **kwargs):
         profile = cProfile.Profile()
         try:
+            configure_logging(':critical')
             profile.enable()
-            logger.setLevel(logging.CRITICAL) # don't profile logger
             result = func(*args, **kwargs)
             profile.disable()
+            configure_logging(':trace')
             return result
         finally:
             s = StringIO.StringIO()
@@ -82,11 +74,8 @@ def test_profiled():
 
 
 def import_chain_data(raw_blocks_fn, test_db_path, skip=0):
-    from pyethereum import chainmanager
-    utils.data_dir.set(test_db_path)
-    chain_manager = chainmanager.ChainManager()
-    chain_manager.configure(config=get_default_config(), genesis=None)
-
+    chain_manager = new_chainmanager()
+    
     fh = open(raw_blocks_fn)
     for i in range(skip):
         fh.readline()
@@ -96,9 +85,14 @@ def import_chain_data(raw_blocks_fn, test_db_path, skip=0):
         data = rlp.decode(hexdata)
         blk = blocks.TransientBlock(hexdata)
         print blk.number, blk.hash.encode('hex'), '%d txs' % len(blk.transaction_list)
+        head = chain_manager.head
+        assert blocks.check_header_pow(blk.header_args)
         chain_manager.receive_chain([blk])
-        assert blk.hash in chain_manager
-
+        if not blk.hash in chain_manager:
+            print 'block could not be added'
+            assert head == chain_manager.head
+            chain_manager.head.deserialize_child(blk.rlpdata)
+            assert blk.hash in chain_manager
 
 if __name__ == "__main__":
     """

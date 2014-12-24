@@ -1,52 +1,47 @@
 import os
 import leveldb
 import threading
-import logging
 import compress
-logger = logging.getLogger(__name__)
-
-databases = {}
+from pyethereum.slogging import get_logger
+log = get_logger('db')
 
 
 class DB(object):
 
     def __init__(self, dbfile):
         self.dbfile = os.path.abspath(dbfile)
-        if dbfile not in databases:
-            logger.debug('Opening db #%d @%r', len(databases)+1, dbfile)
-            databases[dbfile] = (leveldb.LevelDB(dbfile), dict(), threading.Lock())
-        self.db, self.uncommitted, self.lock = databases[dbfile]
-#        logger.debug('%r initialized', self)
+        self.db = leveldb.LevelDB(dbfile)
+        self.uncommitted = dict()
+        self.lock = threading.Lock()
 
     def get(self, key):
-#        logger.debug('%r: get:%r uncommited:%r', self, key, key in self.uncommitted)
         if key in self.uncommitted:
+            if self.uncommitted[key] is None:
+                raise Exception("key not in db")
             return self.uncommitted[key]
-        return compress.decompress(self.db.Get(key))
+        o = compress.decompress(self.db.Get(key))
+        self.uncommitted[key] = o
+        return o
 
     def put(self, key, value):
-#       logger.debug('%r: put:%r:%r', self, key, value)
         with self.lock:
             self.uncommitted[key] = value
 
     def commit(self):
-        logger.debug('%r: commit', self)
+        log.debug('commit', db=self)
         with self.lock:
             batch = leveldb.WriteBatch()
             for k, v in self.uncommitted.iteritems():
-                batch.Put(k, compress.compress(v))
+                if v is None:
+                    batch.Delete(k)
+                else:
+                    batch.Put(k, compress.compress(v))
             self.db.Write(batch, sync=False)
             self.uncommitted.clear()
 
     def delete(self, key):
-#        logger.debug('%r: delete %r', self, key)
         with self.lock:
-            if key in self.uncommitted:
-                del self.uncommitted[key]
-                if key in self:
-                    self.db.Delete(key)
-            else:
-                self.db.Delete(key)
+            self.uncommitted[key] = None
 
     def _has_key(self, key):
         try:

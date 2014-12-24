@@ -2,10 +2,13 @@ import pytest
 import json
 import tempfile
 import pyethereum.trie as trie
+from tests.utils import new_db
+from pyethereum.slogging import get_logger, configure_logging
+logger = get_logger()
 
-import logging
-logging.basicConfig(level=logging.DEBUG, format='%(message)s')
-logger = logging.getLogger()
+# customize VM log output to your needs
+# hint: use 'py.test' with the '-s' option to dump logs to the console
+configure_logging(':trace')
 
 
 def check_testdata(data_keys, expected_keys):
@@ -24,12 +27,12 @@ def load_tests():
 
 def run_test(name):
 
-    logger.debug('testing %s', name)
-    t = trie.Trie(tempfile.mktemp())
+    logger.debug('testing %s' % name)
+    t = trie.Trie(new_db())
     data = load_tests()[name]
 
     for k in data['in']:
-        logger.debug('updating with (%s, %s)', k, k)
+        logger.debug('updating with (%s, %s)' %(k, k))
         t.update(k, k)
     for point, prev, nxt in data['tests']:
         assert nxt == (t.next(point) or '')

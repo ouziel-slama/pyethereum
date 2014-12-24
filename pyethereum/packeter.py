@@ -1,6 +1,5 @@
 import sys
 import signals
-import logging
 from pyethereum import rlp
 from pyethereum.utils import big_endian_to_int as idec
 from pyethereum.utils import int_to_big_endian4 as ienc4
@@ -8,8 +7,8 @@ from pyethereum.utils import recursive_int_to_big_endian
 from pyethereum.utils import sha3
 from pyethereum import dispatch
 from . import __version__
-
-logger = logging.getLogger(__name__)
+from pyethereum.slogging import get_logger
+log = get_logger('net.wire')
 
 
 def lrlp_decode(data):
@@ -34,7 +33,7 @@ class Packeter(object):
     """
     NETWORK_PROTOCOL_VERSION = 2
     # IF CHANGED, DO: git tag 0.6.<ETHEREUM_PROTOCOL_VERSION>
-    ETHEREUM_PROTOCOL_VERSION = 45
+    ETHEREUM_PROTOCOL_VERSION = 49
     CLIENT_VERSION = 'Ethereum(py)/%s/%s' % (sys.platform, __version__)
     # the node s Unique Identifier and is the 512-bit hash that serves to
     # identify the node.
@@ -53,7 +52,7 @@ class Packeter(object):
 
     eth_cmd_map = dict((
         (0x00, 'Status'),
-        (0x01, 'Transactions'), # FIXME!!!
+        (0x01, 'Transactions'),  # FIXME!!!
         (0x02, 'Transactions'),
         (0x03, 'GetBlockHashes'),
         (0x04, 'BlockHashes'),
@@ -142,7 +141,8 @@ class Packeter(object):
         except Exception as e:
             return False, str(e)
 
-        #logger.debug('load packet, cmd:%d %r', idec(payload[0]), Packeter.cmd_map.get(idec(payload[0]),'unknown'))
+        log.trace('load packet', cmd_id=idec(
+            payload[0]), cmd=Packeter.cmd_map.get(idec(payload[0]), 'unknown'))
         if (not len(payload)) or (idec(payload[0]) not in cls.cmd_map):
             return False, 'check cmd %r failed' % idec(payload[0])
 
@@ -259,8 +259,8 @@ class Packeter(object):
         totalDifficulty is the total difficulty of the block (aka score).
         """
         total_difficulty = block.chain_difficulty()
-        lst_block = rlp.decode(block.serialize())
-        data = [self.cmd_map_by_name['NewBlock'], total_difficulty, lst_block]
+        lst_block = rlp.decode(block.serialize())  # FIXME
+        data = [self.cmd_map_by_name['NewBlock'], lst_block, total_difficulty]
         return self.dump_packet(data)
 
     def dump_GetBlockHashes(self, block_hash, max_blocks):
@@ -273,7 +273,6 @@ class Packeter(object):
         data = [self.cmd_map_by_name['GetBlockHashes'], block_hash, max_blocks]
         return self.dump_packet(data)
 
-
     def dump_BlockHashes(self, block_hashes):
         """
         [0x18, [ hash_0: B_32, hash_1: B_32, .... ]]
@@ -282,7 +281,6 @@ class Packeter(object):
         """
         data = [self.cmd_map_by_name['BlockHashes']] + block_hashes
         return self.dump_packet(data)
-
 
     def dump_GetBlocks(self, block_hashes):
         """

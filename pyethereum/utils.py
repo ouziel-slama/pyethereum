@@ -1,5 +1,3 @@
-import logging
-import logging.config
 from sha3 import sha3_256
 from bitcoin import privtopub
 import struct
@@ -11,9 +9,9 @@ import random
 from rlp import big_endian_to_int, int_to_big_endian
 
 
-logger = logging.getLogger(__name__)
-TT256 = 2**256
-TT256M1 = 2**256 - 1
+TT256 = 2 ** 256
+TT256M1 = 2 ** 256 - 1
+TT255 = 2 ** 255
 
 
 # decorator
@@ -46,7 +44,7 @@ def bytearray_to_int(arr):
 def int_to_32bytearray(i):
     o = [0] * 32
     for x in range(32):
-        o[31-x] = i & 0xff
+        o[31 - x] = i & 0xff
         i >>= 8
     return o
 
@@ -75,7 +73,7 @@ def zunpad(x):
 def int_to_addr(x):
     o = [''] * 20
     for i in range(20):
-        o[19-i] = chr(x & 0xff)
+        o[19 - i] = chr(x & 0xff)
         x >>= 8
     return ''.join(o).encode('hex')
 
@@ -116,6 +114,14 @@ def coerce_to_bytes(x):
         return x
 
 
+def ceil32(x):
+    return x if x % 32 == 0 else x + 32 - (x % 32)
+
+
+def to_signed(i):
+    return i if i < TT255 else i - TT256
+
+
 def sha3rlp(x):
     return sha3(rlp.encode(x))
 
@@ -145,12 +151,6 @@ def rlp_encode(item):
     return rlp.encode(recursive_int_to_big_endian(item))
 
 # Format encoders/decoders for bin, addr, int
-
-
-def decode_hash(v):
-    '''decodes a bytearray from hash'''
-    return db_get(v)
-
 
 def decode_bin(v):
     '''decodes a bytearray from serialization'''
@@ -189,13 +189,6 @@ def decode_int64(v):
     return big_endian_to_int(v)
 
 
-def encode_hash(v):
-    '''encodes a bytearray into hash'''
-    k = sha3(v)
-    db_put(k, v)
-    return k
-
-
 def encode_bin(v):
     '''encodes a bytearray into serialization'''
     return v
@@ -225,7 +218,6 @@ def encode_int64(v):
 
 
 decoders = {
-    "hash": decode_hash,
     "bin": decode_bin,
     "addr": decode_addr,
     "int": decode_int,
@@ -234,7 +226,6 @@ decoders = {
 }
 
 encoders = {
-    "hash": encode_hash,
     "bin": encode_bin,
     "addr": encode_addr,
     "int": encode_int,
@@ -243,8 +234,8 @@ encoders = {
 }
 
 printers = {
-    "hash": lambda v: '0x'+v.encode('hex'),
-    "bin": lambda v: '0x'+v.encode('hex'),
+    "hash": lambda v: '0x' + v.encode('hex'),
+    "bin": lambda v: '0x' + v.encode('hex'),
     "addr": lambda v: v,
     "int": lambda v: str(v),
     "trie_root": lambda v: v.encode('hex'),
@@ -333,27 +324,15 @@ class DataDir(object):
             self._set_default()
         return self._path
 
-data_dir = DataDir()
+#data_dir = DataDir()
 
+default_data_dir = DataDir().path
 
-def get_db_path():
-    return os.path.join(data_dir.path, 'statedb')
+def db_path(data_dir):
+    if not os.path.exists(data_dir):
+            os.makedirs(data_dir)
+    return os.path.join(data_dir, 'statedb')
 
-
-def get_index_path():
-    return os.path.join(data_dir.path, 'indexdb')
-
-
-def db_put(key, value):
-    database = db.DB(get_db_path())
-    res = database.put(key, value)
-    database.commit()
-    return res
-
-
-def db_get(key):
-    database = db.DB(get_db_path())
-    return database.get(key)
 
 def dump_state(trie):
     res = ''
@@ -361,58 +340,17 @@ def dump_state(trie):
         res += '%r:%r\n' % (k.encode('hex'), v.encode('hex'))
     return res
 
-def configure_logging(loggerlevels=':DEBUG', verbosity=1):
-    logconfig = dict(
-        version=1,
-        disable_existing_loggers=False,
-        formatters=dict(
-            debug=dict(
-                format='%(threadName)s:%(module)s: %(message)s'
-            ),
-            minimal=dict(
-                format='%(message)s'
-            ),
-        ),
-        handlers=dict(
-            default={
-                'level': 'INFO',
-                'class': 'logging.StreamHandler',
-                'formatter': 'minimal'
-            },
-            verbose={
-                'level': 'DEBUG',
-                'class': 'logging.StreamHandler',
-                'formatter': 'debug'
-            },
-        ),
-        loggers=dict()
-    )
-
-    for loggerlevel in filter(lambda _: ':' in _, loggerlevels.split(',')):
-        name, level = loggerlevel.split(':')
-        logconfig['loggers'][name] = dict(
-            handlers=['verbose'], level=level, propagate=False)
-
-    if len(logconfig['loggers']) == 0:
-        logconfig['loggers'][''] = dict(
-            handlers=['default'],
-            level={0: 'ERROR', 1: 'WARNING', 2: 'INFO', 3: 'DEBUG'}.get(
-                verbosity),
-            propagate=True)
-
-    logging.config.dictConfig(logconfig)
-    # logging.debug("logging set up like that: %r", logconfig)
-
 
 class Denoms():
+
     def __init__(self):
         self.wei = 1
-        self.babbage = 10**3
-        self.lovelace = 10**6
-        self.shannon = 10**9
-        self.szabo = 10**12
-        self.finney = 10**15
-        self.ether = 10**18
-        self.turing = 2**256
+        self.babbage = 10 ** 3
+        self.lovelace = 10 ** 6
+        self.shannon = 10 ** 9
+        self.szabo = 10 ** 12
+        self.finney = 10 ** 15
+        self.ether = 10 ** 18
+        self.turing = 2 ** 256
 
 denoms = Denoms()

@@ -31,11 +31,14 @@ First byte of an encoded item
 0xff == 255
 '''
 
+
 class EncodingError(Exception):
     pass
 
+
 class DecodingError(Exception):
     pass
+
 
 def int_to_big_endian(integer):
     '''convert a integer to big endian binary string'''
@@ -51,8 +54,7 @@ def int_to_big_endian(integer):
 def big_endian_to_int(string):
     '''convert a big endian binary string to integer'''
     # '' is a special case, treated same as 0
-    string = string or '\x00'
-    s = string.encode('hex')
+    s = string.encode('hex') or '0'
     return long(s, 16)
 
 

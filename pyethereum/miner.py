@@ -1,14 +1,14 @@
 import time
 import struct
-import logging
 import blocks
 import processblock
 import utils
+from pyethereum.slogging import get_logger
+log = get_logger('eth.miner')
 
-
-logger = logging.getLogger(__name__)
 
 class Miner():
+
     """
     Mines on the current head
     Stores received transactions
@@ -22,14 +22,13 @@ class Miner():
 
     def __init__(self, parent, uncles, coinbase):
         self.nonce = 0
-        ts = max(int(time.time()), parent.timestamp+1)
+        ts = max(int(time.time()), parent.timestamp + 1)
         self.block = blocks.Block.init_from_parent(parent, coinbase, timestamp=ts,
-                                        uncles=[u.list_header() for u in uncles])
+                                                   uncles=[u.list_header() for u in uncles])
         self.pre_finalize_state_root = self.block.state_root
         self.block.finalize()
-        logger.debug('Mining #%d %s', self.block.number, self.block.hex_hash())
-        logger.debug('Difficulty %s', self.block.difficulty)
-
+        log.debug('Mining', number=self.block.number, hash=self.block.hex_hash(),
+                  difficulty=self.block.difficulty)
 
     def add_transaction(self, transaction):
         old_state_root = self.block.state_root
@@ -40,7 +39,7 @@ class Miner():
         except processblock.InvalidTransaction as e:
             # if unsuccessfull the prerequistes were not fullfilled
             # and the tx isinvalid, state must not have changed
-            logger.debug('Invalid Transaction %r: %r', transaction, e)
+            log.debug('invalid tx', transaction=transaction, error=e)
             success = False
 
         # finalize
@@ -48,17 +47,15 @@ class Miner():
         self.block.finalize()
 
         if not success:
-            logger.debug('transaction %r not applied', transaction)
+            log.debug('tx not applied', transaction=transaction)
             assert old_state_root == self.block.state_root
             return False
         else:
             assert transaction in self.block.get_transactions()
-            logger.debug(
-                'transaction %r applied to %r res: %r', transaction, self.block, output)
+            log.debug('transaction applied', transaction=transaction,
+                      block=self.block.hex_hash(), result=output)
             assert old_state_root != self.block.state_root
             return True
-
-
 
     def get_transactions(self):
         return self.block.get_transactions()
@@ -90,8 +87,7 @@ class Miner():
                 self.block.nonce = nonce_bin
                 assert self.block.check_proof_of_work(self.block.nonce) is True
                 assert self.block.get_parent()
-                logger.debug(
-                    'Nonce found %d %r', nonce, self.block)
+                log.debug('Nonce found', nonce=nonce, block=self.block.hex_hash())
                 return self.block
 
         self.nonce = nonce

@@ -3,10 +3,14 @@
 import os
 import rlp
 import utils
-import db
 import copy
 
-DB = db.DB
+
+bin_to_nibbles_cache = {}
+
+hti = {}
+for i, c in enumerate('0123456789abcdef'):
+    hti[c] = i
 
 
 def bin_to_nibbles(s):
@@ -21,10 +25,7 @@ def bin_to_nibbles(s):
     >>> bin_to_nibbles("hello")
     [6, 8, 6, 5, 6, 12, 6, 12, 6, 15]
     """
-    res = []
-    for x in s:
-        res += divmod(ord(x), 16)
-    return res
+    return [hti[c] for c in s.encode('hex')]
 
 
 def nibbles_to_bin(nibbles):
@@ -49,6 +50,7 @@ proving = False
 
 
 class ProofConstructor():
+
     def __init__(self):
         self.mode = []
         self.nodes = []
@@ -185,18 +187,27 @@ BLANK_ROOT = utils.sha3rlp('')
 
 class Trie(object):
 
-    def __init__(self, dbfile, root_hash=BLANK_ROOT):
+    def __init__(self, db, root_hash=BLANK_ROOT):
         '''it also present a dictionary like interface
 
-        :param dbfile: key value database
+        :param db key value database
         :root: blank or trie node in form of [key, value] or [v0,v1..v15,v]
         '''
-        if isinstance(dbfile, str):
-            dbfile = os.path.abspath(dbfile)
-            self.db = DB(dbfile)
-        else:
-            self.db = dbfile  # Pass in a database object directly
+        self.db = db  # Pass in a database object directly
         self.set_root_hash(root_hash)
+
+    # def __init__(self, dbfile, root_hash=BLANK_ROOT):
+    #     '''it also present a dictionary like interface
+
+    #     :param dbfile: key value database
+    #     :root: blank or trie node in form of [key, value] or [v0,v1..v15,v]
+    #     '''
+    #     if isinstance(dbfile, str):
+    #         dbfile = os.path.abspath(dbfile)
+    #         self.db = DB(dbfile)
+    #     else:
+    #         self.db = dbfile  # Pass in a database object directly
+    #     self.set_root_hash(root_hash)
 
     # For SPV proof production/verification purposes
     def spv_grabbing(self, node):
@@ -443,7 +454,7 @@ class Trie(object):
             if reverse:
                 scan_range.reverse()
             for i in scan_range:
-                o = self._getany(self._decode_to_node(node[i]), path=path+[i])
+                o = self._getany(self._decode_to_node(node[i]), path=path + [i])
                 if o:
                     return [i] + o
             return None
@@ -454,7 +465,7 @@ class Trie(object):
         if node_type == NODE_TYPE_EXTENSION:
             curr_key = without_terminator(unpack_to_nibbles(node[0]))
             sub_node = self._decode_to_node(node[1])
-            return self._getany(sub_node, path=path+curr_key)
+            return self._getany(sub_node, path=path + curr_key)
 
     def _iter(self, node, key, reverse=False, path=[]):
         node_type = self._get_node_type(node)
@@ -465,16 +476,16 @@ class Trie(object):
         elif node_type == NODE_TYPE_BRANCH:
             if len(key):
                 sub_node = self._decode_to_node(node[key[0]])
-                o = self._iter(sub_node, key[1:], reverse, path+[key[0]])
+                o = self._iter(sub_node, key[1:], reverse, path + [key[0]])
                 if o:
                     return [key[0]] + o
             if reverse:
                 scan_range = range(key[0] if len(key) else 0)
             else:
-                scan_range = range(key[0]+1 if len(key) else 0, 16)
+                scan_range = range(key[0] + 1 if len(key) else 0, 16)
             for i in scan_range:
                 sub_node = self._decode_to_node(node[i])
-                o = self._getany(sub_node, reverse, path+[i])
+                o = self._getany(sub_node, reverse, path + [i])
                 if o:
                     return [i] + o
             if reverse and node[16]:
@@ -527,7 +538,7 @@ class Trie(object):
         in the current trie implementation two nodes can share identical subtrees
         thus we can not safely delete nodes for now
         """
-        #self.db.delete(encoded) # FIXME
+        # self.db.delete(encoded) # FIXME
 
     def _delete(self, node, key):
         """ update item inside a node
@@ -819,6 +830,9 @@ def verify_spv_proof(root, key, proof):
 
 if __name__ == "__main__":
     import sys
+    import db
+
+    _db = db.DB(sys.argv[2])
 
     def encode_node(nd):
         if isinstance(nd, str):
@@ -828,9 +842,9 @@ if __name__ == "__main__":
 
     if len(sys.argv) >= 2:
         if sys.argv[1] == 'insert':
-            t = Trie(sys.argv[2], sys.argv[3].decode('hex'))
+            t = Trie(_db, sys.argv[3].decode('hex'))
             t.update(sys.argv[4], sys.argv[5])
             print encode_node(t.root_hash)
         elif sys.argv[1] == 'get':
-            t = Trie(sys.argv[2], sys.argv[3].decode('hex'))
+            t = Trie(_db, sys.argv[3].decode('hex'))
             print t.get(sys.argv[4])

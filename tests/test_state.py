@@ -4,24 +4,17 @@ import pyethereum.processblock as pb
 import pyethereum.blocks as blocks
 import pyethereum.transactions as transactions
 import pyethereum.utils as u
+import pyethereum.tlogging as tlogging
 import os
 import sys
+import pyethereum.vm as vm
+from tests.utils import new_db
 
-import logging
-logging.basicConfig(level=logging.DEBUG, format='%(message)s')
-logger = logging.getLogger()
-pblogger = pb.pblogger
-
+from pyethereum.slogging import get_logger, configure_logging
+logger = get_logger()
 # customize VM log output to your needs
 # hint: use 'py.test' with the '-s' option to dump logs to the console
-pblogger.log_pre_state = True    # dump storage at account before execution
-pblogger.log_post_state = True   # dump storage at account after execution
-pblogger.log_block = False       # dump block after TX was applied
-pblogger.log_memory = True      # dump memory before each op
-pblogger.log_op = True           # log op, gas, stack before each op
-pblogger.log_json = False        # generate machine readable output
-pblogger.log_apply_op = True     # generate machine readable output
-pblogger.log_stack = True        # generate machine readable output
+configure_logging(':trace')
 
 
 def check_testdata(data_keys, expected_keys):
@@ -71,9 +64,9 @@ def do_test_vm(filename, testname=None, limit=99999999):
             do_test_vm(filename, testname)
         return
     if testname in faulty:
-        logger.debug('skipping test:%r in %r', testname, filename)
+        logger.debug('skipping test:%r in %r' %(testname, filename))
         return
-    logger.debug('running test:%r in %r', testname, filename)
+    logger.debug('running test:%r in %r' % (testname, filename))
     params = vm_tests_fixtures()[filename][testname]
 
     pre = params['pre']
@@ -85,7 +78,7 @@ def do_test_vm(filename, testname=None, limit=99999999):
                                 'previousHash', 'currentCoinbase',
                                 'currentDifficulty', 'currentNumber'])
     # setup env
-    blk = blocks.Block(
+    blk = blocks.Block(new_db(),
         prevhash=env['previousHash'].decode('hex'),
         number=int(env['currentNumber']),
         coinbase=env['currentCoinbase'],
@@ -106,29 +99,26 @@ def do_test_vm(filename, testname=None, limit=99999999):
         blk.set_nonce(address, int(h['nonce']))
         blk.set_balance(address, int(h['balance']))
         blk.set_code(address, h['code'][2:].decode('hex'))
-        for k, v in h['storage']:
+        for k, v in h['storage'].iteritems():
             blk.set_storage_data(address,
-                                 u.big_endian_to_int(k.decode('hex')),
-                                 u.big_endian_to_int(v.decode('hex')))
-        pblogger.log('PRE Balance', address=address, balance=h['balance'])
+                                 u.big_endian_to_int(k[2:].decode('hex')),
+                                 u.big_endian_to_int(v[2:].decode('hex')))
 
     # execute transactions
     tx = transactions.Transaction(
-        nonce=int(exek['nonce']),
-        gasprice=int(exek['gasPrice']),
-        startgas=int(exek['gasLimit']),
+        nonce=int(exek['nonce'] or "0"),
+        gasprice=int(exek['gasPrice'] or "0"),
+        startgas=int(exek['gasLimit'] or "0"),
         to=exek['to'],
-        value=int(exek['value']),
+        value=int(exek['value'] or "0"),
         data=exek['data'][2:].decode('hex')).sign(exek['secretKey'])
-    pblogger.log_apply_op = True
-    pblogger.log_op = True
 
     try:
         success, output = pb.apply_transaction(blk, tx)
         blk.commit_state()
-    except:
+    except pb.InvalidTransaction:
         output = ''
-        print 'Transaction not valid'
+        logger.debug('Transaction not valid')
         pass
 
     assert '0x' + output.encode('hex') == params['out']

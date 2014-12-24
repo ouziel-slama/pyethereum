@@ -2,14 +2,13 @@ import socket
 import time
 import sys
 import traceback
-import logging
 
 from dispatch import receiver
 
 from stoppable import StoppableLoopThread
 import signals
-
-logger = logging.getLogger(__name__)
+from pyethereum.slogging import get_logger
+log_net = get_logger('net')
 
 
 def get_public_ip():
@@ -27,23 +26,22 @@ def upnp_add(port):
     :param port: local port
     :return: `None` if failed, `external_ip, external_port` if succeed
     '''
-    logger.debug('Setting UPNP')
+    log_net.debug('Setting UPNP')
 
     import miniupnpc
     upnpc = miniupnpc.UPnP()
     upnpc.discoverdelay = 200
     ndevices = upnpc.discover()
-    logger.debug('%d UPNP device(s) detected', ndevices)
+    log_net.debug('UPNP device(s) detected', num=ndevices)
 
     if not ndevices:
         return None
 
     upnpc.selectigd()
     external_ip = upnpc.externalipaddress()
-    logger.debug('external ip: %s', external_ip)
-    logger.debug('status: %s, connection type: %s',
-                 upnpc.statusinfo(),
-                 upnpc.connectiontype())
+    log_net.debug('upnp', external_ip=external_ip,
+                  status=upnpc.statusinfo(),
+                  connection_type=upnpc.connectiontype())
 
     # find a free port for the redirection
     external_port = port
@@ -59,12 +57,12 @@ def upnp_add(port):
         external_port += 1
 
     if not found:
-        logger.debug('No redirect candidate %s TCP => %s port %u TCP',
-                     external_ip, upnpc.lanaddr, port)
+        log_net.debug('No redirect candidate', external_ip=external_ip,
+                      lan_ip=upnpc.lanaddr, lan_port=port)
         return None
 
-    logger.debug('trying to redirect %s port %u TCP => %s port %u TCP',
-                 external_ip, external_port, upnpc.lanaddr, port)
+    log_net.debug('trying to redirect', external_ip=external_ip, external_port=external_port,
+                  lan_ip=upnpc.lanaddr, lan_port=port)
 
     res = upnpc.addportmapping(external_port, 'TCP',
                                upnpc.lanaddr, port,
@@ -72,8 +70,8 @@ def upnp_add(port):
                                '')
 
     if res:
-        logger.info('Success to redirect %s port %u TCP => %s port %u TCP',
-                    external_ip, external_port, upnpc.lanaddr, port)
+        log_net.debug('success to redirect', external_ip=external_ip, external_port=external_port,
+                      lan_ip=upnpc.lanaddr, lan_port=port)
     else:
         return None
     return upnpc, external_ip, external_port
@@ -82,9 +80,9 @@ def upnp_add(port):
 def upnp_delete(upnpc, external_port):
     res = upnpc.deleteportmapping(external_port, 'TCP')
     if res:
-        logger.debug('Successfully deleted port mapping')
+        log_net.debug('successfully deleted port mapping')
     else:
-        logger.debug('Failed to remove port mapping')
+        log_net.debug('failed to remove port mapping')
 
 
 class TcpServer(StoppableLoopThread):
@@ -113,7 +111,7 @@ class TcpServer(StoppableLoopThread):
         sock.listen(5)
         self.sock = sock
         self.ip, self.port = sock.getsockname()
-        logger.info("TCP server started {0}:{1}".format(self.ip, self.port))
+        log_net.info('TCP server started', ip=self.ip, port=self.port)
 
         # setup upnp
         try:
@@ -121,26 +119,26 @@ class TcpServer(StoppableLoopThread):
             if upnp_res:
                 self.upnpc, self.external_ip, self.external_port = upnp_res
         except Exception as e:
-            logger.debug('upnp failed: %s', e)
+            log_net.debug('upnp failed', error=e)
 
         if not self.external_ip:
             try:
                 self.external_ip = get_public_ip()
                 self.external_port = self.port
             except Exception as e:
-                logger.debug('can\'t get public ip')
+                log_net.debug('can\'t get public ip')
 
         if self.external_ip:
             signals.p2p_address_ready.send(sender=None,
                                            ip=self.external_ip,
                                            port=self.external_port)
-            logger.info('my public address is %s:%s',
-                        self.external_ip, self.external_port)
+            log_net.info('my public address',
+                         external_ip=self.external_ip, external_port=self.external_port)
 
         super(TcpServer, self).pre_loop()
 
     def loop_body(self):
-        logger.debug('in run loop')
+        log_net.debug('in run loop')
         try:
             connection, (ip, port) = self.sock.accept()
         except IOError:

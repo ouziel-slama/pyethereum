@@ -5,16 +5,14 @@ import time
 import uuid
 import signal
 from argparse import ArgumentParser
-import logging
-import logging.config
 
 # this must be called before all other import to enable full qualified import
 from common import enable_full_qualified_import
 enable_full_qualified_import()
 
-from pyethereum.utils import configure_logging
-from pyethereum.utils import data_dir
-from pyethereum.utils import get_db_path
+#from pyethereum.utils import data_dir
+from pyethereum.utils import default_data_dir
+from pyethereum.utils import db_path
 from pyethereum.utils import sha3
 from pyethereum.signals import config_ready
 from pyethereum.tcpserver import tcp_server
@@ -22,15 +20,18 @@ from pyethereum.peermanager import peer_manager
 from pyethereum.apiserver import api_server
 from pyethereum.packeter import Packeter
 from pyethereum.chainmanager import chain_manager
-
 from pyethereum.db import DB
+import pyethereum.slogging
 import pyethereum.config as konfig
 from . import __version__
-logger = logging.getLogger(__name__)
+
+
+pyethereum.slogging.configure()
+log = pyethereum.slogging.get_logger()
 
 try:
     import pyethereum.monkeypatch
-    logger.info("Loaded your customizations from monkeypatch.py")
+    log.critical("Loaded your customizations from monkeypatch.py")
 except ImportError, e:
     pass
 
@@ -50,20 +51,16 @@ def parse_arguments():
     parser.add_argument(
         "-d", "--data_dir",
         dest="data_dir",
-        help="<path>  Load database from path (default: %s)" %  \
-                        config.get('misc', 'data_dir'))
+        help="<path>  Load database from path (default: %s)" %
+        config.get('misc', 'data_dir'))
     parser.add_argument(
         "-r", "--remote",
         dest="remote_host",
-        help="<host> Connect to remote host (default: 54.76.56.74)")
+        help="<host> Connect to remote host (default: 207.12.89.180)")
     parser.add_argument(
         "-p", "--port",
         dest="remote_port",
         help="<port> Connect to remote port (default: 30303)")
-    parser.add_argument(
-        "-V", "--verbose",
-        dest="verbosity",
-        help="<0 - 3>  Set the log verbosity from 0 to 3 (default: 1)")
     parser.add_argument(
         "-m", "--mining",
         dest="mining",
@@ -71,10 +68,16 @@ def parse_arguments():
     parser.add_argument(
         "-L", "--logging",
         dest="logging",
-#        default=config.get('misc', 'logging'),
-        help="<logger1:LEVEL,logger2:LEVEL> set the console log level for"
-        " logger1, logger2, etc. Empty loggername means root-logger,"
-        " e.g. 'pyethereum.wire:DEBUG,:INFO'. Overrides '-V'")
+        help="<logger1:LEVEL,logger2:LEVEL> set the console log for interests"
+        " logger1, logger2, etc. Empty loggername means 'default'"
+        " loggers inherit the log level of their parent (e.g. 'eth.chain' inherits 'eth'"
+        " unless their level is explicitly set)"
+        " - available loglevels: ['critical', 'warn', 'info', 'debug', 'trace']"
+        " - available loggers: %r" % [x for x in pyethereum.slogging.get_logger_names() if x])
+    parser.add_argument(
+        "-J", "--log_json",
+        dest="log_json",
+        help="set to 1 to emit logs as json")
     parser.add_argument(
         "-x", "--peers",
         dest="num_peers",
@@ -90,19 +93,12 @@ def parse_arguments():
 def check_chain_version(config):
     key = '__chain_version__'
     chain_version = str(Packeter.ETHEREUM_PROTOCOL_VERSION)
-    db_path = get_db_path()
-    db = DB(db_path)
+    db = DB(db_path(config.get('misc', 'data_dir')))
     if not key in db:
         db.put(key, chain_version)
     if db.get(key) != chain_version:
-        print \
-"""
-ATTENTION --------------------------------------------------------------------
-the chain in the db (V:%r) doesn't match the the software version (V:%r)
-This may lead to unexpected errors.
-Consider to delete the db directory: %s
---------- --------------------------------------------------------------------
-""" % (db.get(key), chain_version, db_path)
+        log.critical('db version mismatch', db_version=db.get(
+            key), chain_version=chain_version, db_path=db_path)
         time.sleep(5)
 
 
@@ -124,21 +120,25 @@ def create_config():
         for a, v in config.items(section):
             if getattr(options, a, None) is not None:
                 config.set(section, a, getattr(options, a))
-
-    # set datadir
-    data_dir.set(config.get('misc', 'data_dir'))
+    
     return config
 
 
 def main():
+    log.info('starting', version=__version__)
+
     config = create_config()
-
     # configure logging
-    configure_logging(config.get('misc', 'logging') or '',
-                      verbosity=config.getint('misc', 'verbosity'))
-    logger.info('----------- Starting pyethereum %s --------------', __version__)
+    config_string = config.get('misc', 'logging') or ':INFO'
+    pyethereum.slogging.configure(config_string,
+                                  log_json=bool(config.getint('misc', 'log_json')))
 
-    logger.debug("Config Ready:%s", konfig.dump_config(config))
+    # log config
+    log.debug("config ready")
+    for section in config.sections():
+        for a, v in config.items(section):
+            log.debug(section, **{a: v})
+
     config_ready.send(sender=None, config=config)
 
     # initialize chain
@@ -148,7 +148,7 @@ def main():
     try:
         tcp_server.start()
     except IOError as e:
-        logger.error("Could not start TCP server: \"{0}\"".format(str(e)))
+        log.error("Could not start TCP server", error=e)
         sys.exit(1)
 
     # PEER MANAGER THREAD
@@ -162,7 +162,7 @@ def main():
 
     # handle termination signals
     def signal_handler(signum=None, frame=None):
-        logger.info('Signal handler called with signal {0}'.format(signum))
+        log.info('Signal handler called', signal=signum)
         peer_manager.stop()
         chain_manager.stop()
         tcp_server.stop()
@@ -180,9 +180,9 @@ def main():
     while not peer_manager.stopped():
         time.sleep(0.001)
 
-    logger.info('exiting')
+    log.info('exiting')
     peer_manager.join()
-    logger.debug('main thread finished')
+    log.debug('main thread finished')
 
 if __name__ == '__main__':
     main()

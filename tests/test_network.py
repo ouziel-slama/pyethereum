@@ -9,16 +9,16 @@ import pyethereum.signals as signals
 import pyethereum.peermanager as peermanager
 from pyethereum.db import DB as DB
 from pyethereum.config import get_default_config
-from tests.utils import set_db
+from tests.utils import new_db
 from pyethereum import __version__
 
 idec = utils.big_endian_to_int
 
-import logging
-logging.basicConfig(level=logging.DEBUG) # , format='%(message)s')
-logger = logging.getLogger()
 
-set_db()
+from pyethereum.slogging import get_logger, configure_logging
+logger = get_logger()
+configure_logging(':trace')
+
 
 class Connection(object):
 
@@ -42,20 +42,20 @@ class Connection(object):
         return Connection(self.local_buffer, self.remote_buffer)
 
     def shutdown(self, *args):
-        logger.debug('%r shutdown %r', self, args)
+        logger.debug('%r shutdown %r' %(self, args))
 
     def close(self, *args):
-        logger.debug('%r close %r', self, args)
+        logger.debug('%r close %r' %(self, args))
 
 
 class Peer(peer.Peer):
 
     def send_Disconnect(self, reason=None):
-        logger.info('%r sending disconnect: %r', self, reason)
+        logger.info('%r sending disconnect: %r' % (self, reason))
         self.send_packet(packeter.Packeter().dump_Disconnect(reason=reason))
 
     def _receive_Disconnect(self, reason=None):
-        logger.debug('%r received Disconnect %r', self, reason)
+        logger.debug('%r received Disconnect %r' %(self, reason))
         raise Exception('%r received Disconnect')
 
     def recv(self):
@@ -98,13 +98,6 @@ def get_packeter():
     p = packeter.Packeter()
     p.configure(get_default_config())
     return p
-
-@pytest.fixture(scope="module")
-def get_chainmanager(genesis=None):
-    import pyethereum.chainmanager as chainmanager
-    cm = chainmanager.ChainManager()
-    cm.configure(config=get_default_config(), genesis=genesis)
-    return cm
 
 def test_status():
     p = get_packeter()
