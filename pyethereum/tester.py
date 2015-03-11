@@ -3,7 +3,7 @@ import tempfile
 import time
 import logging
 import sys
-import spv
+from . import spv
 import pyethereum
 import pyethereum.db as db
 import pyethereum.opcodes as opcodes
@@ -22,7 +22,7 @@ accounts = []
 keys = []
 
 for i in range(10):
-    keys.append(u.sha3(str(i)))
+    keys.append(u.sha3(str(i).encode('ascii')))
     accounts.append(u.privtoaddr(keys[-1]))
 
 k0, k1, k2, k3, k4, k5, k6, k7, k8, k9 = keys[:10]
@@ -35,7 +35,7 @@ seed = 3 ** 160
 
 def dict_without(d, *args):
     o = {}
-    for k, v in d.items():
+    for k, v in list(d.items()):
         if k not in args:
             o[k] = v
     return o
@@ -43,9 +43,9 @@ def dict_without(d, *args):
 
 def dict_with(d, **kwargs):
     o = {}
-    for k, v in d.items():
+    for k, v in list(d.items()):
         o[k] = v
-    for k, v in kwargs.items():
+    for k, v in list(kwargs.items()):
         o[k] = v
     return o
 
@@ -55,7 +55,6 @@ def rand():
     global seed
     seed = pow(seed, 2, 2 ** 512)
     return seed % 2 ** 256
-
 
 class state():
 
@@ -72,7 +71,9 @@ class state():
             o[accounts[i]] = {"wei": 10 ** 24}
         for i in range(1, 5):
             o[u.int_to_addr(i)] = {"wei": 1}
+
         self.block = b.genesis(self.db, o)
+
         self.blocks = [self.block]
         self.block.timestamp = 1410973349
         self.block.coinbase = a0
@@ -142,7 +143,7 @@ class state():
         tx.sign(sender)
         if gas is not None:
             tx.startgas = gas
-        print 'starting', tx.startgas, gas_limit
+        print('starting', tx.startgas, gas_limit)
         (s, a) = pb.apply_transaction(self.block, tx)
         if not s:
             raise Exception("Contract creation failed")
@@ -226,7 +227,7 @@ class state():
         for i in range(n):
             self.block.finalize()
             t = self.block.timestamp + 6 + rand() % 12
-            self.block = b.Block.init_from_parent(self.block, coinbase, '', t)
+            self.block = b.Block.init_from_parent(self.block, coinbase, b'', t)
             self.blocks.append(self.block)
 
     def snapshot(self):
@@ -248,7 +249,7 @@ def set_logging_level(lvl=1):
         'eth.vm.storage:trace,eth.vm.memory:trace'
     ]
     configure_logging(config_string=trace_lvl_map[lvl])
-    print 'Set logging level: %d' % lvl
+    print(('Set logging level: %d' % lvl))
 
 
 def set_log_trace(logger_names=[]):

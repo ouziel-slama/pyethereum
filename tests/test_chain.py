@@ -25,9 +25,9 @@ blocks.peck_cache(db, utils.sha3('\x00' * 32), ethash_utils.get_next_cache_size(
 
 @pytest.fixture(scope="module")
 def accounts():
-    k = utils.sha3('cow')
+    k = utils.sha3(b'cow')
     v = utils.privtoaddr(k)
-    k2 = utils.sha3('horse')
+    k2 = utils.sha3(b'horse')
     v2 = utils.privtoaddr(k2)
     return k, v, k2, v2
 

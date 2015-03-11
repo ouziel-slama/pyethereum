@@ -1,7 +1,10 @@
 import rlp
 from bitcoin import encode_pubkey
 from bitcoin import ecdsa_raw_sign, ecdsa_raw_recover, N, P
-import utils
+from . import utils
+from . import bloom
+
+import binascii
 
 tx_structure = [
     ["nonce", "int", 0],
@@ -46,6 +49,7 @@ class Transaction(object):
         self.value = value
         self.data = data
         self.v, self.r, self.s = v, r, s
+        self.logs = []
 
         # Determine sender
         if self.r < N and self.s < P and self.v >= 27 and self.v <= 28:
@@ -53,7 +57,7 @@ class Transaction(object):
             pub = encode_pubkey(
                 ecdsa_raw_recover(rawhash, (self.v, self.r, self.s)),
                 'bin')
-            self.sender = utils.sha3(pub[1:])[-20:].encode('hex')
+            self.sender = utils.encode_hex(utils.sha3(pub[1:])[-20:])
         # does not include signature
         else:
             self.sender = 0
@@ -80,7 +84,7 @@ class Transaction(object):
 
     @classmethod
     def hex_deserialize(cls, hexrlpdata):
-        return cls.deserialize(hexrlpdata.decode('hex'))
+        return cls.deserialize(utils.decode_hex(hexrlpdata))
 
     def sign(self, key):
         rawhash = utils.sha3(self.serialize(False))
@@ -98,21 +102,28 @@ class Transaction(object):
         return rlp.encode(self.listfy(signed))
 
     def hex_serialize(self, signed=True):
-        return self.serialize(signed).encode('hex')
+        return utils.encode_hex(self.serialize(signed))
 
     @property
     def hash(self):
         return utils.sha3(self.serialize())
 
     def hex_hash(self):
-        return self.hash.encode('hex')
+        return binascii.hexlify(self.hash).decode('ascii')
+
+    def log_bloom(self):
+        "returns int"
+        return bloom.bloom_from_list(utils.flatten([x.bloomables() for x in self.logs]))
+
+    def log_bloom_b64(self):
+        return bloom.b64(self.log_bloom())
 
     def to_dict(self):
         h = {}
         for name, typ, default in tx_structure:
             h[name] = utils.printers[typ](getattr(self, name))
         h['sender'] = self.sender
-        h['hash'] = self.hash.encode('hex')
+        h['hash'] = binascii.hexlify(self.hash).decode('ascii')
         return h
 
     def __eq__(self, other):
